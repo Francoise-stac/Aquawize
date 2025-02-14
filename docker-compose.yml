@@ -1,0 +1,106 @@
+# services:
+#    mysql:
+#     image: mysql:9.0.0
+#     # DONT FORGET TO CHANGE container_name according to the platform
+#     container_name: DB_local
+#     restart: unless-stopped
+#     ports:
+#       - '3306:3306'
+#     environment:
+#       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+#       - MYSQL_DATABASE=aquawize
+#     networks:
+#       - net
+
+#   # Service Flask 
+#   app:
+#     build:
+#       context: .
+#       dockerfile: Dockerfile  # Utilisation du Dockerfile existant
+#     container_name: flask_app
+#     restart: unless-stopped
+#     ports:
+#       - "5000:5000"  # Port exposé pour Flask
+#     depends_on:
+#       - mysql  # Assure que MySQL démarre avant l'application
+#     environment:
+#       DATABASE_URI: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+#     networks:
+#       - net
+
+# networks:
+#   net:
+#     external: true
+
+# version: "3.8"
+
+# services:
+#   # Service MySQL
+#   mysql:
+#     image: mysql:8.0
+#     container_name: DB_local
+#     restart: unless-stopped
+#     ports:
+#       - "3306:3306"
+#     environment:
+#       MYSQL_ROOT_PASSWORD: your_password
+#       MYSQL_DATABASE: ai_platform
+#     volumes:
+#       - ./mysql_data:/var/lib/mysql  # Monte les données MySQL
+
+#   # Service Flask (votre application)
+#   app:
+#     build:
+#       context: ./ai_platform
+#       dockerfile: installation_Deployment/Dockerfile
+#     container_name: flask_app
+#     ports:
+#       - "5000:5000"
+#     depends_on:
+#       - mysql  # Assure que MySQL démarre avant l'application
+#     environment:
+#       DATABASE_URI: mysql+pymysql://root:your_password@mysql:3306/ai_platform
+#     volumes:
+#       - ./ai_platform:/app  # Monte le code source Flask
+
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: DB_local
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ai_platform
+    volumes:
+      - ./mysql_data:/var/lib/mysql
+    networks:
+      - net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      
+    container_name: flask_app
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mysql
+    environment:
+      SQLALCHEMY_DATABASE_URI: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD}@mysql:3306/ai_platform
+    volumes:
+      - ./ai_platform:/app
+    networks:
+      - net
+
+
+networks:
+  net:
+    external: true
+
+
