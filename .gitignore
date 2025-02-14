@@ -1,0 +1,26 @@
+*__pycache__
+*db.sqlite
+id_ed25519
+sds
+__init__ copy.py
+gunicorn_logs.log
+tests/test.db
+flask_monitoringdashboard.db
+flask_monitoringdashboard.db-journal
+.env
+config.cfg
+sandbox/pwd.py
+superuser.log
+test.db
+test.sqlite
+requirements_experimental.txt
+installation_Deployment/Dockerfile_experimental
+venv
+tests/tests.sqlite
+
+.vscode/tasks.json
+yml_extractor.py
+zap/zap_report_core.html
+api_documentation.yml
+zap/zap_report_front.html
+zap/zap_report_lcx.html

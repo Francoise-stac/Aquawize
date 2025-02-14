@@ -1,0 +1,193 @@
+
+stages:
+  - build
+  - 'Security checker'
+  - security
+  - test
+  - preprod
+  - prod
+
+blackduck:
+  stage: 'Security checker'
+  image: 'openjdk:11-jre'
+  script:
+    - apt-get update && apt-get install -y python3 python3-pip git
+    - python3 -m pip install --upgrade pip
+    - python3 --version
+    - which python3      # Print the path of the Python executable
+    - if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - bash <(curl -s https://detect.synopsys.com/detect9.sh) 
+      --blackduck.url=$BLACKDUCK_API_URL_1
+      --blackduck.api.token=$BLACKDUCK_API_TOKEN_1
+      --detect.python.path="$(which python3)"
+      --detect.project.name="Aquawize_Core"
+      --detect.project.version.name="preprod"
+      --detect.blackduck.signature.scanner.snippet.matching=SNIPPET_MATCHING
+      --detect.blackduck.signature.scanner.upload.source.mode=true
+  only:
+    - preprod
+  tags:
+    - colivia
+
+pytest:
+  image: python:3.12.2
+  stage: test
+  script:
+    - echo "Installing dependencies..."
+    - python -m pip install --upgrade pip
+    - if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - echo "Running unit tests with pytest..."
+    - pytest -s --disable-warnings 
+  tags:
+    - test
+  only:
+    - dev
+  allow_failure: true
+  
+flaketest:
+  image: python:3.12.2
+  stage: test
+  script:
+    - echo "Installing dependencies..."
+    - python -m pip install --upgrade pip
+    - if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - pip install flake8
+    - echo "Running unit tests with pytest..."
+    - flake8 . --count --select=E101,E111,E112,E113,F401,F841,W292,W293,C901,C903 --show-source --statistics  #--select=E9,F63,F7,F82 , whitespace trailing : W291
+  tags:
+    - test
+  only:
+    - dev
+  allow_failure: true
+
+variables:
+  # PREPROD_REMOTE_PATH: "/home/lcxlab/DockerHub/aquawize_core_preprod/"
+  # PREPROD_REMOTE_PORT: "42422"
+  REMOTE_PATH: "/home/lcxlab/DockerHub/aquawize_core/"
+  REMOTE_PORT: "42422"
+  COMPOSE_PATH: "/home/lcxlab/DockerHub/"
+# "/home/lcxlab/Docker Hub/aquawize_api/aquawize_core/"
+preprod:    
+  stage: preprod
+  before_script:
+    - apk update && apk add --no-cache openssh-client bash iputils rsync
+    # Start the SSH agent
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - ssh-keyscan -p $REMOTE_PORT $PREPROD_VM_IP >> ~/.ssh/known_hosts
+  script:
+    - hostname
+    - echo $CI_COMMIT_SHORT_SHA
+    - echo "SSH begin"
+    - ssh $PREPROD_USER@$PREPROD_VM_IP -p $REMOTE_PORT docker ps
+    - echo "SSH connected"
+    # Syncronize the files from repo to vm
+    - rsync -avz --exclude '.git/' -e "ssh -p $REMOTE_PORT" . $PREPROD_USER@$PREPROD_VM_IP:$REMOTE_PATH
+    # Build the image 
+    - VERSION_DATE=$(date +%y%m%d)
+    - echo $VERSION_DATE
+    - TAGNAME=$VERSION.$VERSION_DATE.$CI_COMMIT_SHORT_SHA
+    - echo $TAGNAME
+
+    # Compose part
+    - ssh $PREPROD_USER@$PREPROD_VM_IP -p $REMOTE_PORT "cd $COMPOSE_PATH; docker compose rm -f aquawize_core"
+    # - ssh $PREPROD_USER@$PREPROD_VM_IP -p $REMOTE_PORT "cd $REMOTE_PATH; docker run -it -d -v $REMOTE_PATH:/LXAnalytics_AquaVision --env-file .env -e AQUAWIZE_VERSION=$TAGNAME --network net --name aquawize_core aquawize_api_img:$TAGNAME"
+    - ssh $PREPROD_USER@$PREPROD_VM_IP -p $REMOTE_PORT "cd $COMPOSE_PATH; export TAGNAME=$TAGNAME; docker compose up --build -d aquawize_core; export TAGNAME='';"
+    - echo "scp successful"
+    # - ssh $PREPROD_USER@$PREPROD_VM_IP -p $REMOTE_PORT "docker update --restart unless-stopped aquawize_core"
+  only:
+    - preprod
+  tags:
+    - colivia
+
+
+prod:    
+  stage: prod
+  before_script:
+    - apk update && apk add --no-cache openssh-client bash iputils rsync
+    # Start the SSH agent
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - ssh-keyscan -p $REMOTE_PORT $PROD_VM_IP >> ~/.ssh/known_hosts
+  script:
+    - hostname
+    - echo $CI_COMMIT_SHORT_SHA
+    - echo "SSH begin"
+    - ssh $PROD_USER@$PROD_VM_IP -p $REMOTE_PORT docker ps
+    - echo "SSH connected"
+    # Syncronize the files from repo to vm
+    - rsync -avz --exclude '.git/' -e "ssh -p $REMOTE_PORT" . $PROD_USER@$PROD_VM_IP:$REMOTE_PATH
+    # Build the image 
+    - VERSION_DATE=$(date +%y%m%d)
+    - echo $VERSION_DATE
+    - TAGNAME=$VERSION.$VERSION_DATE.$CI_COMMIT_SHORT_SHA
+    - echo $TAGNAME
+    - ssh $PROD_USER@$PROD_VM_IP -p $REMOTE_PORT "cd $REMOTE_PATH; docker build -f "installation_Deployment/Dockerfile" -t aquawize_api_img:$TAGNAME -t aquawize_api_img:latest . --no-cache"
+    - ssh $PROD_USER@$PROD_VM_IP -p $REMOTE_PORT "docker rm -f aquawize_core"
+    - ssh $PROD_USER@$PROD_VM_IP -p $REMOTE_PORT "cd $REMOTE_PATH; docker run -it -d -v $REMOTE_PATH:/LXAnalytics_AquaVision --env-file .env -e AQUAWIZE_VERSION=$TAGNAME --network net --name aquawize_core aquawize_api_img:$TAGNAME"
+    - echo "scp successful"
+    - ssh $PROD_USER@$PROD_VM_IP -p $REMOTE_PORT "docker update --restart unless-stopped aquawize_core"
+  only:
+    - prod
+  tags:
+    - colivia
+
+
+
+include:
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+  - template: Jobs/SAST.gitlab-ci.yml
+  # - template: Jobs/Container-Scanning.gitlab-ci.yml
+
+# build:
+#   image: docker:20.10.16
+#   services:
+#     - name: docker:20.10.16-dind
+#       alias: docker
+#   stage: build
+#   script:
+#     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+#     - docker build -f "installation_Deployment/Dockerfile" -t aquawize_api_img .
+#     - docker run -it -d -v $PROD_REMOTE_PATH:/LXAnalytics_AquaVision -e AQUAWIZE_VERSION=$TAGNAME -e RUN_TYPE=dev -e RECOVERY_EMAIL="nomail" -e RECOVERY_EMAIL_PASS="nomail" --name aquawize_core aquawize_api_img
+#   tags:
+#     - colivia
+
+
+
+# container_scanning:
+#   stage: security
+#   variables:
+#     CS_DEFAULT_BRANCH_IMAGE: $CI_REGISTRY_IMAGE/$CI_DEFAULT_BRANCH:$CI_COMMIT_SHA
+#     SECURE_LOG_LEVEL: 'debug'
+#   allow_failure: true
+#   tags:
+#     - test
+
+    
+semgrep-sast:
+  stage: security
+  allow_failure: true
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+    paths:
+      - gl-sast-report.json
+    expire_in: 1 day
+  tags:
+    - test
+
+secret_detection:
+  stage: security
+  variables:
+    SECRET_DETECTION_HISTORIC_SCAN: "true"
+  allow_failure: false
+  artifacts:
+    reports:
+      secret_detection: gl-secret-detection-report.json
+    paths:
+      - gl-secret-detection-report.json
+    expire_in: 1 day
+  tags:
+    - test
